@@ -20,6 +20,22 @@ const FINGER_PIPS = [6, 10, 14, 18];
 
 const SABER_LENGTH = 260; // comprimento fixo da lâmina em pixels
 
+// Landmarks usados para achar o centro do punho fechado (wrist + as 4 MCPs)
+const GRIP_LANDMARKS = [0, 5, 9, 13, 17];
+
+const HILT_LENGTH = 35; // comprimento do cabo/hilt em pixels
+const HILT_COLOR = '#3a3a3a'; // cinza-metálico escuro, sem glow
+const HILT_BASE_WIDTH = 10;
+const BLADE_HALO_BASE_WIDTH = 14;
+const BLADE_CORE_BASE_WIDTH = 5;
+
+// Distância (em px) entre wrist e middle-MCP considerada "tamanho normal"
+// de mão a uma distância confortável da webcam - usada para escalar a
+// espessura do sabre conforme a mão fica maior/menor na tela.
+const REFERENCE_HAND_SIZE_PX = 120;
+const MIN_SABER_SCALE = 0.6;
+const MAX_SABER_SCALE = 1.8;
+
 // Estado mais recente de mãos detectadas, atualizado por onResults()
 // e consumido pelo game loop. Cada item: { landmarks (espelhados), color, isFist }.
 let latestHands = [];
@@ -282,54 +298,104 @@ function lineIntersectsAABB(x1, y1, x2, y2, box) {
 // ------------------------------------------------------------
 
 /**
- * Calcula o segmento do sabre (pulso -> ponta da lâmina) a partir dos
- * landmarks já espelhados de uma mão. Usamos o nó (MCP) do dedo médio,
- * e não a ponta, porque o nó quase não se move quando os dedos
- * flexionam - isso mantém a inclinação do sabre estável tanto com a
- * mão aberta quanto fechada em punho.
+ * Calcula o segmento completo do sabre (cabo + lâmina) a partir dos
+ * landmarks já espelhados de uma mão.
+ *
+ * Origem: em vez do WRIST isolado, usamos o centro do punho fechado -
+ * a média do wrist com as 4 articulações MCP (5, 9, 13, 17). Isso cai
+ * bem mais próximo de onde um objeto realmente ficaria segurado na mão
+ * do que a base isolada da mão.
+ *
+ * Direção: continua vindo do vetor wrist(0) -> middleMcp(9), porque
+ * esse nó quase não se move quando os dedos flexionam - mantém a
+ * inclinação do sabre estável tanto com a mão aberta quanto fechada.
+ *
+ * A lâmina nasce onde o cabo termina (hiltEnd), não no centro do
+ * punho. A espessura (scale) é derivada do tamanho aparente da mão na
+ * tela (distância wrist -> middleMcp em pixels): mão maior/mais perto
+ * da câmera = sabre mais grosso.
  */
 function getSaberSegment(landmarks, canvasWidth, canvasHeight) {
   const wrist = landmarks[WRIST];
   const middleMcp = landmarks[MIDDLE_FINGER_MCP];
 
-  const x1 = wrist.x * canvasWidth;
-  const y1 = wrist.y * canvasHeight;
+  const wristX = wrist.x * canvasWidth;
+  const wristY = wrist.y * canvasHeight;
   const mcpX = middleMcp.x * canvasWidth;
   const mcpY = middleMcp.y * canvasHeight;
 
-  let dirX = mcpX - x1;
-  let dirY = mcpY - y1;
-  const length = Math.hypot(dirX, dirY) || 1;
-  dirX /= length;
-  dirY /= length;
+  let dirX = mcpX - wristX;
+  let dirY = mcpY - wristY;
+  const handSizePx = Math.hypot(dirX, dirY) || 1;
+  dirX /= handSizePx;
+  dirY /= handSizePx;
 
-  const x2 = x1 + dirX * SABER_LENGTH;
-  const y2 = y1 + dirY * SABER_LENGTH;
+  let gripX = 0;
+  let gripY = 0;
+  for (const index of GRIP_LANDMARKS) {
+    gripX += landmarks[index].x * canvasWidth;
+    gripY += landmarks[index].y * canvasHeight;
+  }
+  gripX /= GRIP_LANDMARKS.length;
+  gripY /= GRIP_LANDMARKS.length;
 
-  return { x1, y1, x2, y2 };
+  const hiltEndX = gripX + dirX * HILT_LENGTH;
+  const hiltEndY = gripY + dirY * HILT_LENGTH;
+
+  const bladeEndX = hiltEndX + dirX * SABER_LENGTH;
+  const bladeEndY = hiltEndY + dirY * SABER_LENGTH;
+
+  const scale = Math.min(
+    Math.max(handSizePx / REFERENCE_HAND_SIZE_PX, MIN_SABER_SCALE),
+    MAX_SABER_SCALE
+  );
+
+  return {
+    gripX,
+    gripY,
+    hiltEndX,
+    hiltEndY,
+    bladeEndX,
+    bladeEndY,
+    scale,
+    // Segmento da lâmina, usado pela colisão (o cabo não corta nada)
+    x1: hiltEndX,
+    y1: hiltEndY,
+    x2: bladeEndX,
+    y2: bladeEndY,
+  };
 }
 
-function drawSaberLine(ctx, fromX, fromY, toX, toY, color) {
+function drawSaberLine(ctx, segment, color) {
   ctx.save();
   ctx.lineCap = 'round';
 
-  // Halo neon grosso
+  // Cabo/hilt: sólido, cinza-metálico, sem shadowBlur (sem glow)
   ctx.beginPath();
-  ctx.moveTo(fromX, fromY);
-  ctx.lineTo(toX, toY);
+  ctx.moveTo(segment.gripX, segment.gripY);
+  ctx.lineTo(segment.hiltEndX, segment.hiltEndY);
+  ctx.strokeStyle = HILT_COLOR;
+  ctx.shadowBlur = 0;
+  ctx.lineWidth = HILT_BASE_WIDTH * segment.scale;
+  ctx.stroke();
+
+  // Lâmina - halo neon grosso
+  ctx.beginPath();
+  ctx.moveTo(segment.hiltEndX, segment.hiltEndY);
+  ctx.lineTo(segment.bladeEndX, segment.bladeEndY);
   ctx.strokeStyle = color;
   ctx.shadowColor = color;
   ctx.shadowBlur = 35;
-  ctx.lineWidth = 14;
+  ctx.lineWidth = BLADE_HALO_BASE_WIDTH * segment.scale;
   ctx.stroke();
 
-  // Núcleo branco brilhante, mais fino e sem blur
+  // Lâmina - núcleo branco brilhante, mais fino e sem blur
   ctx.beginPath();
-  ctx.moveTo(fromX, fromY);
-  ctx.lineTo(toX, toY);
+  ctx.moveTo(segment.hiltEndX, segment.hiltEndY);
+  ctx.lineTo(segment.bladeEndX, segment.bladeEndY);
   ctx.strokeStyle = '#ffffff';
   ctx.shadowBlur = 0;
-  ctx.lineWidth = 5;
+  ctx.lineWidth = BLADE_CORE_BASE_WIDTH * segment.scale;
   ctx.stroke();
 
   ctx.restore();
@@ -359,7 +425,7 @@ function drawHandsAndGetSabers(ctx, canvasWidth, canvasHeight) {
     }
 
     const segment = getSaberSegment(hand.landmarks, canvasWidth, canvasHeight);
-    drawSaberLine(ctx, segment.x1, segment.y1, segment.x2, segment.y2, hand.color);
+    drawSaberLine(ctx, segment, hand.color);
 
     sabers.push({ ...segment, color: hand.color });
   }
