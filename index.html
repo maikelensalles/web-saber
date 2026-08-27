@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>WebSaber</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="container">
+    <!-- O vídeo é a fonte de frames para o MediaPipe. Fica visível para dar
+         feedback ao jogador de que a câmera está funcionando. -->
+    <video id="webcam" playsinline autoplay muted></video>
+
+    <!-- Canvas desenhado por cima do vídeo, mesma área, para renderizar
+         o esqueleto/pontos de tracking sem nunca tocar nos pixels do vídeo. -->
+    <canvas id="output"></canvas>
+  </div>
+
+  <!-- MediaPipe Hands via CDN (ordem importa: utils antes do hands) -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+  <script src="app.js" defer></script>
+</body>
+</html>

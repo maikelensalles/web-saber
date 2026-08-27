@@ -1,0 +1,46 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+}
+
+.container {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+/* Vídeo e canvas ocupam exatamente a mesma área, um sobre o outro,
+   para que as coordenadas detectadas pela IA coincidam com o que o
+   jogador vê na tela. */
+#webcam,
+#output {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Espelha a imagem (efeito "espelho"), como o jogador espera ver a si
+   mesmo. O canvas é espelhado do mesmo jeito no app.js para que os
+   pontos desenhados caiam exatamente sobre os pulsos reais. */
+#webcam {
+  transform: scaleX(-1);
+}
+
+#output {
+  z-index: 2;
+}
