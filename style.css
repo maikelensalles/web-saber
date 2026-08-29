@@ -44,3 +44,34 @@ html, body {
 #output {
   z-index: 2;
 }
+
+.vr-toggle {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  z-index: 3;
+  padding: 10px 20px;
+  font-family: system-ui, sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: #00e5ff;
+  background: rgba(5, 5, 16, 0.6);
+  border: 1px solid #00e5ff;
+  border-radius: 8px;
+  cursor: pointer;
+  text-shadow: 0 0 6px #00e5ff;
+  box-shadow: 0 0 12px rgba(0, 229, 255, 0.5), inset 0 0 8px rgba(0, 229, 255, 0.15);
+  transition: box-shadow 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+.vr-toggle:hover {
+  box-shadow: 0 0 20px rgba(0, 229, 255, 0.85), inset 0 0 12px rgba(0, 229, 255, 0.3);
+}
+
+.vr-toggle.active {
+  color: #ff0057;
+  border-color: #ff0057;
+  text-shadow: 0 0 6px #ff0057;
+  box-shadow: 0 0 20px rgba(255, 0, 87, 0.7), inset 0 0 12px rgba(255, 0, 87, 0.25);
+}

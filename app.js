@@ -5,9 +5,22 @@
 const videoElement = document.getElementById('webcam');
 const canvasElement = document.getElementById('output');
 const canvasCtx = canvasElement.getContext('2d');
+const vrToggleButton = document.getElementById('vr-toggle');
 
 const CYAN = '#00e5ff';
 const MAGENTA = '#ff0057';
+
+// ------------------------------------------------------------
+// Modo VR / Espacial
+// ------------------------------------------------------------
+
+let isVRMode = false;
+
+vrToggleButton.addEventListener('click', () => {
+  isVRMode = !isVRMode;
+  vrToggleButton.textContent = isVRMode ? 'Desativar Modo VR' : 'Ativar Modo VR';
+  vrToggleButton.classList.toggle('active', isVRMode);
+});
 
 // Índices de landmarks da mão usados para orientar o sabre
 // (https://developers.google.com/mediapipe/solutions/vision/hand_landmarker)
@@ -250,6 +263,104 @@ const blockManager = new BlockManager();
 const particleManager = new ParticleManager();
 
 // ------------------------------------------------------------
+// Fundo warp speed (hiperespaço) - usado só no Modo VR
+// ------------------------------------------------------------
+
+const SPACE_BACKGROUND_COLOR = '#050510';
+const STAR_COUNT = 400;
+const STAR_MAX_DEPTH = 600; // "z" de nascimento/renascimento (longe)
+const WARP_SPEED = 300; // unidades de z removidas por segundo
+const STARFIELD_FOCAL_LENGTH = 300;
+
+class Star {
+  constructor(canvasWidth, canvasHeight) {
+    this.respawn(canvasWidth, canvasHeight);
+    // Espalha as estrelas em profundidades variadas no início, para não
+    // nascerem todas juntas no centro no primeiro frame.
+    this.z = Math.random() * STAR_MAX_DEPTH;
+    const projected = this.project(canvasWidth, canvasHeight);
+    this.screenX = projected.x;
+    this.screenY = projected.y;
+    this.prevScreenX = projected.x;
+    this.prevScreenY = projected.y;
+  }
+
+  respawn(canvasWidth, canvasHeight) {
+    this.x = (Math.random() * 2 - 1) * canvasWidth;
+    this.y = (Math.random() * 2 - 1) * canvasHeight;
+    this.z = STAR_MAX_DEPTH;
+  }
+
+  project(canvasWidth, canvasHeight) {
+    const cx = canvasWidth / 2;
+    const cy = canvasHeight / 2;
+    return {
+      x: cx + (this.x / this.z) * STARFIELD_FOCAL_LENGTH,
+      y: cy + (this.y / this.z) * STARFIELD_FOCAL_LENGTH,
+    };
+  }
+
+  update(deltaSeconds, canvasWidth, canvasHeight) {
+    this.prevScreenX = this.screenX;
+    this.prevScreenY = this.screenY;
+
+    this.z -= WARP_SPEED * deltaSeconds;
+
+    if (this.z <= 1) {
+      this.respawn(canvasWidth, canvasHeight);
+      const projected = this.project(canvasWidth, canvasHeight);
+      this.screenX = projected.x;
+      this.screenY = projected.y;
+      // Evita uma linha gigante de "teleporte" no frame do renascimento
+      this.prevScreenX = projected.x;
+      this.prevScreenY = projected.y;
+      return;
+    }
+
+    const projected = this.project(canvasWidth, canvasHeight);
+    this.screenX = projected.x;
+    this.screenY = projected.y;
+  }
+
+  draw(ctx) {
+    const proximity = 1 - this.z / STAR_MAX_DEPTH; // 0 (longe) -> 1 (perto)
+    ctx.beginPath();
+    ctx.moveTo(this.prevScreenX, this.prevScreenY);
+    ctx.lineTo(this.screenX, this.screenY);
+    ctx.strokeStyle = `rgba(255, 255, 255, ${0.3 + proximity * 0.7})`;
+    ctx.lineWidth = 1 + proximity * 2;
+    ctx.stroke();
+  }
+}
+
+class WarpStarField {
+  constructor() {
+    this.stars = [];
+  }
+
+  ensureStars(canvasWidth, canvasHeight) {
+    while (this.stars.length < STAR_COUNT) {
+      this.stars.push(new Star(canvasWidth, canvasHeight));
+    }
+  }
+
+  update(deltaSeconds, canvasWidth, canvasHeight) {
+    this.ensureStars(canvasWidth, canvasHeight);
+    for (const star of this.stars) {
+      star.update(deltaSeconds, canvasWidth, canvasHeight);
+    }
+  }
+
+  draw(ctx) {
+    for (const star of this.stars) {
+      star.draw(ctx);
+    }
+  }
+}
+
+const warpStarField = new WarpStarField();
+
+// ------------------------------------------------------------
 // Colisão: segmento de reta (sabre) x AABB (bloco)
 // Algoritmo de Liang-Barsky: clipping de segmento contra retângulo,
 // O(1), sem laços sobre pixels - ideal para rodar a cada frame.
@@ -402,23 +513,26 @@ function drawSaberLine(ctx, segment, color) {
 }
 
 /**
- * Desenha o esqueleto de cada mão (sempre, como feedback de tracking)
- * e o sabre apenas quando a mão estiver em punho fechado. Retorna a
- * lista de segmentos de sabre (só das mãos fechadas), para reuso na
- * colisão sem recomputar nada.
+ * Desenha o esqueleto de cada mão (modo AR: sempre, como feedback de
+ * tracking; modo VR: nunca, para mostrar só os sabres flutuando) e o
+ * sabre apenas quando a mão estiver em punho fechado. Retorna a lista
+ * de segmentos de sabre (só das mãos fechadas), para reuso na colisão
+ * sem recomputar nada.
  */
 function drawHandsAndGetSabers(ctx, canvasWidth, canvasHeight) {
   const sabers = [];
 
   for (const hand of latestHands) {
-    drawConnectors(ctx, hand.landmarks, HAND_CONNECTIONS, {
-      color: '#ffffff',
-      lineWidth: 2,
-    });
-    drawLandmarks(ctx, hand.landmarks, {
-      color: '#ffffff',
-      radius: 3,
-    });
+    if (!isVRMode) {
+      drawConnectors(ctx, hand.landmarks, HAND_CONNECTIONS, {
+        color: '#ffffff',
+        lineWidth: 2,
+      });
+      drawLandmarks(ctx, hand.landmarks, {
+        color: '#ffffff',
+        radius: 3,
+      });
+    }
 
     if (!hand.isFist) {
       continue;
@@ -494,6 +608,13 @@ function gameLoop(timestamp) {
   const canvasHeight = canvasElement.height;
 
   canvasCtx.clearRect(0, 0, canvasWidth, canvasHeight);
+
+  if (isVRMode) {
+    canvasCtx.fillStyle = SPACE_BACKGROUND_COLOR;
+    canvasCtx.fillRect(0, 0, canvasWidth, canvasHeight);
+    warpStarField.update(deltaSeconds, canvasWidth, canvasHeight);
+    warpStarField.draw(canvasCtx);
+  }
 
   blockManager.update(deltaSeconds, canvasWidth, canvasHeight);
   blockManager.draw(canvasCtx);
